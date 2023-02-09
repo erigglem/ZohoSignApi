@@ -2,7 +2,7 @@
 
 namespace Webleit\ZohoSignApi\Modules;
 
-use Doctrine\Common\Inflector\Inflector;
+use Doctrine\Inflector\InflectorFactory;
 use Tightenco\Collect\Support\Collection;
 use Webleit\ZohoSignApi\Client;
 use Webleit\ZohoSignApi\Exception\GrantCodeNotSetException;
@@ -88,8 +88,10 @@ abstract class Module implements \Webleit\ZohoSignApi\Contracts\Module
      */
     public function create($data, $params = [])
     {
+        $inflector = InflectorFactory::create()->build();
+
         $data = $this->client->post($this->getUrl(), null, $data, $params);
-        $data = $data[Inflector::singularize($this->getResourceKey())];
+        $data = $data[$inflector->singularize($this->getResourceKey())];
 
         return $this->make($data);
     }
@@ -103,8 +105,9 @@ abstract class Module implements \Webleit\ZohoSignApi\Contracts\Module
      */
     public function update($id, $data, $params = [])
     {
+        $inflector = InflectorFactory::create()->build();
         $data = $this->client->put($this->getUrl(), $id, null, $data, $params);
-        $data = $data[Inflector::singularize($this->getResourceKey())];
+        $data = $data[$inflector->singularize($this->getResourceKey())];
 
         return $this->make($data);
     }
@@ -143,7 +146,8 @@ abstract class Module implements \Webleit\ZohoSignApi\Contracts\Module
      */
     public function getName()
     {
-        return Inflector::pluralize(strtolower((new \ReflectionClass($this))->getShortName()));
+        $inflector = InflectorFactory::create()->build();
+        return $inflector->pluralize(strtolower((new \ReflectionClass($this))->getShortName()));
     }
 
     /**
@@ -220,8 +224,9 @@ abstract class Module implements \Webleit\ZohoSignApi\Contracts\Module
      */
     protected function getPropertyList($property, $id = null, $class = null, $subProperty = null, $module = null)
     {
+        $inflector = InflectorFactory::create()->build();
         if (!$class) {
-            $class = $this->getModelClassName() . '\\' . ucfirst(strtolower(Inflector::singularize($property)));
+            $class = $this->getModelClassName() . '\\' . ucfirst(strtolower($inflector->singularize($property)));
         }
 
         if (!$module) {
@@ -255,8 +260,9 @@ abstract class Module implements \Webleit\ZohoSignApi\Contracts\Module
      */
     public function getModelClassName()
     {
+        $inflector = InflectorFactory::create()->build();
         $className = (new \ReflectionClass($this))->getShortName();
-        $class = '\\Webleit\\ZohoSignApi\\Models\\' . ucfirst(Inflector::singularize($className));
+        $class = '\\Webleit\\ZohoSignApi\\Models\\' . ucfirst($inflector->singularize($className));
 
         return $class;
     }
