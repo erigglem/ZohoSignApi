@@ -282,8 +282,8 @@ class Client
         if (!isset($data->access_token)) {
             throw new ApiError(@$data->error);
         }
-
-        $this->setAccessToken($data->access_token, $data->expires_in_sec);
+        
+        $this->setAccessToken($data->access_token, $data->expires_in);
 
         return $data->access_token;
     }
@@ -406,8 +406,8 @@ class Client
             throw new ApiError(@$data->error);
         }
 
-        $this->setAccessToken($data->access_token, $data->expires_in_sec);
-        $this->setRefreshToken($data->refresh_token, $data->expires_in_sec);
+        $this->setAccessToken($data->access_token, $data->expires_in);
+        $this->setRefreshToken($data->refresh_token, $data->expires_in);
 
         return $data->refresh_token;
     }
