@@ -1,7 +1,7 @@
 <?php
 namespace Webleit\ZohoSignApi\Models;
 
-use Doctrine\Common\Inflector\Inflector;
+use Doctrine\Inflector\InflectorFactory;
 use Tightenco\Collect\Contracts\Support\Arrayable;
 use Webleit\ZohoSignApi\Contracts\Module;
 
@@ -141,6 +141,7 @@ abstract class Model implements \JsonSerializable, Arrayable
      */
     public function getName()
     {
-        return Inflector::singularize(strtolower((new \ReflectionClass($this))->getShortName()));
+        $inflector = InflectorFactory::create()->build();
+        return $inflector->singularize(strtolower((new \ReflectionClass($this))->getShortName()));
     }
 }
