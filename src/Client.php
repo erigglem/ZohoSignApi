@@ -1,450 +1,279 @@
 <?php
 
-namespace Webleit\ZohoSignApi;
+namespace Webleit\ZohoSignApi\Modules;
 
-use GuzzleHttp\Psr7\Response;
-use Psr\Cache;
-use Psr\Http\Message\ResponseInterface;
-use Psr\Http\Message\UriInterface;
-use Webleit\ZohoSignApi\Exception\ApiError;
+use Doctrine\Inflector\InflectorFactory;
+use Tightenco\Collect\Support\Collection;
+use Webleit\ZohoSignApi\Client;
 use Webleit\ZohoSignApi\Exception\GrantCodeNotSetException;
+use Webleit\ZohoSignApi\Models\Model;
 
 /**
- * Class Client
- * @see https://github.com/opsway/zohobooks-api
- * @package Webleit\ZohoBooksApi
+ * Class Module
+ * @package Webleit\ZohoSignApi\Modules
  */
-class Client
+abstract class Module implements \Webleit\ZohoSignApi\Contracts\Module
 {
-    const OAUTH_GRANT_URL = "https://accounts.zoho.com/oauth/v2/auth";
-    const OAUTH_API_URL = "https://accounts.zoho.com/oauth/v2/token";
-    const ZOHO_SIGN_API_URL = "https://sign.zoho.com/api/v1/";
+    /**
+     * Response types
+     */
+    const RESPONSE_OPTION_PAGINATION_ONLY = 2;
 
     /**
-     * @var \GuzzleHttp\Client
+     * @var Client
      */
     protected $client;
 
     /**
-     * @var string
+     * Module constructor.
+     * @param Client $client
      */
-    protected $grantCode;
-
-    /**
-     * @var string
-     */
-    protected $clientSecret;
-
-    /**
-     * @var string
-     */
-    protected $clientId;
-
-    /**
-     * @var string
-     */
-    protected $accessToken = '';
-
-    /**
-     * @var string
-     */
-    protected $refreshToken = '';
-
-    /**
-     * @var Cache\CacheItemPoolInterface
-     */
-    protected $cache;
-
-    /**
-     * Client constructor.
-     * @param $clientId
-     * @param $clientSecret
-     * @param $grantCode
-     */
-    public function __construct ($clientId, $clientSecret, $refreshToken = null)
+    function __construct(Client $client)
     {
-        $this->client = new \GuzzleHttp\Client();
-
-        $this->clientId = $clientId;
-        $this->clientSecret = $clientSecret;
-
-        if ($refreshToken) {
-            $this->setRefreshToken($refreshToken);
-        }
+        $this->client = $client;
     }
 
     /**
-     * @param string $grantCode
-     * @return $this
-     */
-    public function setGrantCode (string $grantCode)
-    {
-        $this->grantCode = $grantCode;
-        return $this;
-    }
-
-    /**
-     * @param Cache\CacheItemPoolInterface $cacheItemPool
-     * @return $this
-     */
-    public function useCache (Cache\CacheItemPoolInterface $cacheItemPool)
-    {
-        $this->cache = $cacheItemPool;
-        return $this;
-    }
-
-    /**
-     * @param $uri
-     * @param $method
-     * @param $query
-     * @param $data
-     * @param array $extraData
-     * @return Response
-     * @throws ApiError
+     * @param array $params
+     * @return Collection|static
      * @throws GrantCodeNotSetException
+     * @throws \Webleit\ZohoSignApi\Exception\ApiError
      */
-    public function call ($uri, $method, $query = [], $data = [], $extraData = [])
+    public function getList($params = [])
     {
-        $data = [
-            'data' => json_encode($data)
-        ];
+        $list = $this->client->getList($this->getUrl());
 
-        $data = array_merge($data, $extraData);
+        $collection = new Collection($list[$this->getResourceKey()]);
+        $collection = $collection->mapWithKeys(function($item) {
+            $item = $this->make($item);
+            return [$item->getId() => $item];
+        });
 
-        return $this->client->$method(self::ZOHO_SIGN_API_URL . $uri, [
-            'query' => $query,
-            'form_params' => $data,
-            'headers' => [
-                'Authorization' => 'Zoho-oauthtoken ' . $this->getAccessToken()
-            ]
-        ]);
+        return $collection;
     }
 
     /**
-     * @param $uri
-     * @param $start
-     * @param $limit
-     * @param $orderBy
-     * @param $orderDir
-     * @param array $search
-     * @return mixed
-     * @throws ApiError
-     * @throws GrantCodeNotSetException
+     * Get a single record for this module
+     * @param string $id
+     * @return Model
      */
-    public function getList($uri, $start = 1, $limit = 10, $orderBy = 'created_time', $orderDir = 'DESC', $search = [])
+    public function get($id, array $params = [])
     {
-        $pageContext = $this->getPageContext($start, $limit, $orderBy, $orderDir, $search);
+        $item = $this->client->get($this->getUrl(), $id, null, $params);
 
-        $response = $this->call($uri, 'GET', ['data' => json_encode($pageContext)]);
-
-        $body = $response->getBody();
-
-        $data = json_decode($body, true);
-
-        return $data;
-    }
-
-    /**
-     * @param $url
-     * @param null $id
-     * @return array|mixed|string
-     * @throws ApiError
-     * @throws GrantCodeNotSetException
-     */
-    public function get($url, $id = null)
-    {
-        if ($id !== null) {
-            $url .= '/' . $id;
+        if (!is_array($item)) {
+            return $item;
         }
 
-        return $this->processResult(
-            $this->call($url, 'GET')
-        );
+        $data = $item[$this->getResourceKey()];
+
+        return $this->make($data);
     }
 
     /**
-     * @param int $start
-     * @param int $limit
-     * @param string $orderBy
-     * @param string $orderDir
-     * @param array $search
-     * @return array
+     * Get the total records for a module
+     * @return str
      */
-    protected function getPageContext($start = 1, $limit = 10, $orderBy = 'created_time', $orderDir = 'DESC', $search = [])
+    public function getPDF($reqId, $docId)
     {
-        return [
-            'page_context' => [
-                'row_count' => $limit,
-                'start_index' => $start,
-                //'search_columns' => $search,
-                'sort_column' => $orderBy,
-                'sort_order' => $orderDir
-            ]
-        ];
+        $pdf = $this->client->get($this->getUrl(), $reqId . '/documents/' . $docId . '/pdf');
+        return $pdf;
     }
 
     /**
-     * @param ResponseInterface $response
-     * @return array|mixed|string
-     * @throws ApiError
+     * Get the total records for a module
+     * @return int
      */
-    protected function processResult(ResponseInterface $response)
+    public function getTotal()
     {
-        try {
-            $result = json_decode($response->getBody(), true);
-        } catch (\InvalidArgumentException $e) {
-
-            // All ok, probably not json, like PDF?
-            if ($response->getStatusCode() >= 200 && $response->getStatusCode() <= 299) {
-                return (string) $response->getBody();
-            }
-
-            $result = [
-                'message' => 'Internal API error: ' . $response->getStatusCode() . ' ' . $response->getReasonPhrase(),
-            ];
-        }
-
-        if (!$result) {
-            // All ok, probably not json, like PDF?
-            if ($response->getStatusCode() >= 200 && $response->getStatusCode() <= 299) {
-                return (string) $response->getBody();
-            }
-
-            $result = [
-                'message' => 'Internal API error: ' . $response->getStatusCode() . ' ' . $response->getReasonPhrase(),
-            ];
-        }
-
-        if (isset($result['code']) && 0 == $result['code']) {
-            return $result;
-        }
-
-        throw new ApiError('Response from Zoho is not success. Message: ' . $result['message']);
+        $list = $this->client->getList($this->getUrl(), null, ['response_option' => self::RESPONSE_OPTION_PAGINATION_ONLY]);
+        return $list['page_context']['total'];
     }
 
     /**
-     * @return \GuzzleHttp\Client
+     * Creates a new record for this module
+     * @param array $data
+     * @param array $params
+     * @return Model
      */
-    public function getHttpClient (): \GuzzleHttp\Client
+    public function create($data, $params = [])
+    {
+        $inflector = InflectorFactory::create()->build();
+
+        $data = $this->client->post($this->getUrl(), null, $data, $params);
+        $data = $data[$inflector->singularize($this->getResourceKey())];
+
+        return $this->make($data);
+    }
+
+    /**
+     * Update a record for this module
+     * @param string $id
+     * @param array $data
+     * @param array $params
+     * @return Model
+     */
+    public function update($id, $data, $params = [])
+    {
+        $inflector = InflectorFactory::create()->build();
+        $data = $this->client->put($this->getUrl(), $id, null, $data, $params);
+        $data = $data[$inflector->singularize($this->getResourceKey())];
+
+        return $this->make($data);
+    }
+
+    /**
+     * Deletes a record for this module
+     *
+     * @param $id
+     * @return bool
+     */
+    public function delete($id)
+    {
+        $this->client->delete($this->getUrl(), $id);
+
+        // all is ok if we've reached this point
+        return true;
+    }
+
+    /**
+     * Get the url path for the api of this module (ie: /organizations)
+     * @return string
+     */
+    public function getUrlPath()
+    {
+        // Module specific url path?
+        if (isset($this->urlPath) && $this->urlPath) {
+            return $this->urlPath;
+        }
+
+        // Class name
+        return $this->getName();
+    }
+
+    /**
+     * @return string
+     */
+    public function getName()
+    {
+        $inflector = InflectorFactory::create()->build();
+        return $inflector->pluralize(strtolower((new \ReflectionClass($this))->getShortName()));
+    }
+
+    /**
+     * Get the full api url to this module
+     * @return string
+     */
+    public function getUrl()
+    {
+        return $this->getUrlPath();
+    }
+
+    /**
+     * @return string
+     */
+    protected function getResourceKey()
+    {
+        return strtolower($this->getName());
+    }
+
+    /**
+     * @param  array $data
+     * @return Model
+     */
+    public function make($data = [])
+    {
+        $class = $this->getModelClassName();
+
+        return new $class($data, $this);
+    }
+
+    /**
+     * @return Client
+     */
+    public function getClient()
     {
         return $this->client;
     }
 
     /**
-     * @return mixed
-     * @throws ApiError
-     * @throws GrantCodeNotSetException
+     * @param $id
+     * @param $status
+     * @param string $key
+     * @return bool
      */
-    public function getAccessToken ()
+    public function markAs($id, $status, $key = 'status')
     {
-        if (!$this->cache) {
-            return $this->generateAccessToken();
-        }
-
-        try {
-            $cachedAccessToken = $this->cache->getItem('zoho_sign_access_token');
-
-            $value = $cachedAccessToken->get();
-            if ($value) {
-                return $value;
-            }
-
-            $accessToken = $this->generateAccessToken();
-            $cachedAccessToken->set($accessToken);
-            $cachedAccessToken->expiresAfter(60 * 59);
-            $this->cache->save($cachedAccessToken);
-
-            return $accessToken;
-
-        } catch (\Psr\Cache\InvalidArgumentException $e) {
-            return $this->generateAccessToken();
-        }
+        $this->client->post($this->getUrl() . '/' . $id . '/' . $key . '/' . $status);
+        // If we arrive here without exceptions, everything went well
+        return true;
     }
 
     /**
-     * @return mixed
-     * @throws ApiError
-     * @throws GrantCodeNotSetException
+     * @param $id
+     * @param $action
+     * @param array $data
+     * @param array $params
+     * @return bool
      */
-    protected function generateAccessToken ()
+    public function doAction($id, $action, $data = [], $params = [])
     {
-        $response = $this->client->post(self::OAUTH_API_URL, [
-            'query' => [
-                'refresh_token' => $this->getRefreshToken(),
-                'client_id' => $this->clientId,
-                'client_secret' => $this->clientSecret,
-                'grant_type' => 'refresh_token'
-            ]
-        ]);
+        $this->client->post($this->getUrl() . '/' . $id . '/' . $action, null, $data, $params);
 
-        $data = json_decode($response->getBody());
-
-        if (!isset($data->access_token)) {
-            throw new ApiError(@$data->error);
-        }
-
-        $this->setAccessToken($data->access_token, $data->expires_in_sec);
-
-        return $data->access_token;
+        // If we arrive here without exceptions, everything went well
+        return true;
     }
 
     /**
-     * @return mixed|string
-     * @throws ApiError
-     * @throws GrantCodeNotSetException
+     * @param $property
+     * @param null $id
+     * @param null $class
+     * @param null $subProperty
+     * @param null $module
+     * @return Collection
      */
-    public function getRefreshToken ()
+    protected function getPropertyList($property, $id = null, $class = null, $subProperty = null, $module = null)
     {
-        if ($this->refreshToken) {
-            return $this->refreshToken;
+        $inflector = InflectorFactory::create()->build();
+        if (!$class) {
+            $class = $this->getModelClassName() . '\\' . ucfirst(strtolower($inflector->singularize($property)));
         }
 
-        if (!$this->cache) {
-            return $this->generateRefreshToken();
+        if (!$module) {
+            $module = $this;
         }
 
-        try {
-            $cachedAccessToken = $this->cache->getItem('zoho_sign_refresh_token');
-
-            $value = $cachedAccessToken->get();
-            if ($value) {
-                return $value;
-            }
-
-            $accessToken = $this->generateRefreshToken();
-            $cachedAccessToken->set($accessToken);
-            $cachedAccessToken->expiresAfter(60 * 59);
-            $this->cache->save($cachedAccessToken);
-
-            return $accessToken;
-
-        } catch (\Psr\Cache\InvalidArgumentException $e) {
-            return $this->generateRefreshToken();
+        if (!$subProperty) {
+            $subProperty = $property;
         }
+
+        $url = $this->getUrl();
+        if ($id !== null) {
+            $url .= '/' . $id;
+        }
+        $url .= '/' . $property;
+
+        $list = $this->client->getList($url);
+
+        $collection = new Collection($list[$subProperty]);
+        $collection = $collection->mapWithKeys(function ($item) use ($class, $module) {
+            /** @var Model $item */
+            $item = new $class($item, $module);
+            return [$item->getId() => $item];
+        });
+
+        return $collection;
     }
-
-    /**
-     * @param $token
-     * @param int $expiresInSeconds
-     * @return $this|mixed
-     */
-    public function setAccessToken($token, $expiresInSeconds = 3600)
-    {
-        $this->accessToken = $token;
-
-        if (!$this->cache) {
-            return $this;
-        }
-
-        try {
-            $cachedToken = $this->cache->getItem('zoho_sign_access_token');
-
-            $cachedToken->set($token);
-            $cachedToken->expiresAfter($expiresInSeconds);
-            $this->cache->save($cachedToken);
-
-            return $this;
-
-        } catch (\Psr\Cache\InvalidArgumentException $e) {
-            return $this;
-        }
-    }
-
-    /**
-     * @param $token
-     * @param int $expiresInSeconds
-     * @return $this|mixed
-     */
-    public function setRefreshToken($token, $expiresInSeconds = 3600)
-    {
-        $this->refreshToken = $token;
-
-        if (!$this->cache) {
-            return $this;
-        }
-
-        try {
-            $cachedToken = $this->cache->getItem('zoho_sign_refresh_token');
-
-            $cachedToken->set($token);
-            $cachedToken->expiresAfter($expiresInSeconds);
-            $this->cache->save($cachedToken);
-
-            return $this;
-
-        } catch (\Psr\Cache\InvalidArgumentException $e) {
-            return $this;
-        }
-    }
-
 
     /**
      * @return string
-     * @throws ApiError
-     * @throws GrantCodeNotSetException
      */
-    protected function generateRefreshToken ()
+    public function getModelClassName()
     {
-        if (!$this->grantCode) {
-            throw new GrantCodeNotSetException('You need to pass a grant code to use the Api. To generate a grant code visit ' . $this->getGrantCodeConsentUrl());
-        }
+        $inflector = InflectorFactory::create()->build();
+        $className = (new \ReflectionClass($this))->getShortName();
+        $class = '\\Webleit\\ZohoSignApi\\Models\\' . ucfirst($inflector->singularize($className));
 
-        $response = $this->client->post(self::OAUTH_API_URL, [
-            'query' => [
-                'code' => $this->grantCode,
-                'client_id' => $this->clientId,
-                'client_secret' => $this->clientSecret,
-                'state' => 'testing',
-                'grant_type' => 'authorization_code',
-                'scope' => 'ZohoSign.documents.all,ZohoSign.templates.all,ZohoSign.account.all'
-            ]
-        ]);
-
-        $data = json_decode($response->getBody());
-
-        if (!isset($data->refresh_token)) {
-            throw new ApiError(@$data->error);
-        }
-
-        $this->setAccessToken($data->access_token, $data->expires_in_sec);
-        $this->setRefreshToken($data->refresh_token, $data->expires_in_sec);
-
-        return $data->refresh_token;
-    }
-
-    /**
-     * @param $redirectUri
-     * @return string
-     */
-    public function getGrantCodeConsentUrl ($redirectUri)
-    {
-        return self::OAUTH_GRANT_URL . '?' . http_build_query([
-            'client_id' => $this->clientId,
-            'state' => 'testing',
-            'redirect_uri' => $redirectUri,
-            'response_type' => 'code',
-            'access_type' => 'offline',
-            'scope' => 'ZohoSign.documents.all,ZohoSign.templates.all,ZohoSign.account.all'
-        ]);
-    }
-
-    /**
-     * @param UriInterface $uri
-     * @return string|null
-     */
-    public static function parseGrantTokenFromUrl(UriInterface $uri)
-    {
-        $query = $uri->getQuery();
-        $data = explode('&', $query);
-
-        foreach ($data as &$d) {
-            $d = explode("=", $d);
-        }
-
-        if (isset($data['code'])) {
-            return $data['code'];
-        }
-
-        return null;
+        return $class;
     }
 }
