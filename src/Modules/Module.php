@@ -72,6 +72,16 @@ abstract class Module implements \Webleit\ZohoSignApi\Contracts\Module
 
     /**
      * Get the total records for a module
+     * @return str
+     */
+    public function getPDF($reqId, $docId)
+    {
+        $pdf = $this->client->get($this->getUrl(), $reqId . '/documents/' . $docId . '/pdf');
+        return $pdf;
+    }
+
+    /**
+     * Get the total records for a module
      * @return int
      */
     public function getTotal()
@@ -212,6 +222,18 @@ abstract class Module implements \Webleit\ZohoSignApi\Contracts\Module
 
         // If we arrive here without exceptions, everything went well
         return true;
+    }
+
+    public function customAction($id, $action, $data = [], $params = [],$method = "POST")
+    {
+        if($method === "GET") {
+            $response = $this->client->get($this->getUrl() . '/' . $id . '/' . $action, null);
+        } else {
+            $response = $this->client->post($this->getUrl() . '/' . $id . '/' . $action, null, $data, $params);
+        }
+        
+        // If we arrive here without exceptions, everything went well
+        return $response;
     }
 
     /**
